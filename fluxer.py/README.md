@@ -196,7 +196,7 @@ vc.resume()
 print(vc.is_paused)  # bool
 ```
 
-`FFmpegPCMAudio` accepts the same options as discord.py's `FFmpegPCMAudio`:
+`FFmpegPCMAudio` accepts common ffmpeg source options:
 
 | Parameter | Description |
 |---|---|

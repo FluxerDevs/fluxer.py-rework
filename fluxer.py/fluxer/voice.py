@@ -165,7 +165,7 @@ class VoiceClient:
         # 20ms Opus frames at 48kHz = 960 samples; s16le = 2 bytes/sample
         chunk_bytes = 960 * source.num_channels * 2
 
-        # Keeping this close to discord.py's implementation
+        # Keep ffmpeg process handling predictable for background playback.
         args = [source.executable]
         if source.before_options:
             args += shlex.split(source.before_options)
