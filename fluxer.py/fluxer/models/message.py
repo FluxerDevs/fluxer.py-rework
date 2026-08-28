@@ -99,6 +99,7 @@ class PartialMessage:
     async def edit(self, content: str | None = None, **kwargs: Any) -> Message:
         if self._http is None:
             raise RuntimeError("PartialMessage is not bound to an HTTP client")
+        kwargs = process_embed_args(kwargs)
         data = await self._http.edit_message(
             self.channel_id,
             self.id,
@@ -382,6 +383,7 @@ class Message:
         """Edit this message."""
         if self._http is None:
             raise RuntimeError("Message is not bound to an HTTP client")
+        kwargs = process_embed_args(kwargs)
         data = await self._http.edit_message(
             self.channel_id, self.id, content=content, **kwargs
         )

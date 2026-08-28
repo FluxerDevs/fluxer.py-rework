@@ -106,6 +106,7 @@ async def test_message_reference_partial_and_allowed_mentions() -> None:
     assert partial.jump_url.endswith("/@me/10/100")
     assert (await partial.fetch()).content == "fetched"
     assert (await partial.edit(content="edited")).content == "edited"
+    await partial.edit(embed=fluxer.Embed(title="Partial edit"))
     await partial.pin()
     await partial.unpin()
     await partial.ack()
@@ -115,6 +116,17 @@ async def test_message_reference_partial_and_allowed_mentions() -> None:
     assert http.unpinned == [(10, 100)]
     assert http.acked == [(10, 100)]
     assert http.deleted == [(10, 100)]
+    assert http.edited[1][2]["embeds"] == [{"title": "Partial edit"}]
+
+
+@pytest.mark.asyncio
+async def test_message_edit_accepts_single_embed() -> None:
+    http = FakeHTTP()
+    message = fluxer.Message.from_data(http._message(10, 100, "hello"), http)
+
+    await message.edit(embed=fluxer.Embed(title="Menu page"))
+
+    assert http.edited == [(10, 100, {"content": None, "embeds": [{"title": "Menu page"}]})]
 
 
 @pytest.mark.asyncio
