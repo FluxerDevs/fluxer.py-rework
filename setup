@@ -1,0 +1,14 @@
+#!/usr/bin/env sh
+set -eu
+
+case "${OS:-}:$(uname -s 2>/dev/null || echo unknown)" in
+    Windows_NT:*|*:MINGW*|*:MSYS*|*:CYGWIN*)
+        if command -v cmd.exe >/dev/null 2>&1; then
+            exec cmd.exe /c setup.cmd "$@"
+        fi
+        exec ./setup.sh "$@"
+        ;;
+    *)
+        exec ./setup.sh "$@"
+        ;;
+esac
