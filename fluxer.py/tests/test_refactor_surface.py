@@ -169,3 +169,32 @@ async def test_gateway_helper_payloads() -> None:
     assert sent[3].op == fluxer.GatewayOpcode.REQUEST_GUILD_COUNTS
     assert sent[4].op == fluxer.GatewayOpcode.REQUEST_CHANNEL_MEMBER_COUNTS
     assert sent[5].op == fluxer.GatewayOpcode.VOICE_STATE_UPDATE
+
+
+@pytest.mark.asyncio
+async def test_client_wait_for_resolves_matching_events() -> None:
+    client = fluxer.Client()
+    payload = object()
+    waiter = asyncio.create_task(
+        client.wait_for("raw_reaction_add", check=lambda event: event is payload)
+    )
+
+    await asyncio.sleep(0)
+    await client._fire("on_raw_reaction_add", payload)
+
+    assert await asyncio.wait_for(waiter, timeout=1.0) is payload
+
+
+@pytest.mark.asyncio
+async def test_client_wait_for_ignores_non_matching_events() -> None:
+    client = fluxer.Client()
+    payload = object()
+    waiter = asyncio.create_task(
+        client.wait_for("raw_reaction_add", check=lambda event: event is payload, timeout=0.01)
+    )
+
+    await asyncio.sleep(0)
+    await client._fire("on_raw_reaction_add", object())
+
+    with pytest.raises(asyncio.TimeoutError):
+        await waiter

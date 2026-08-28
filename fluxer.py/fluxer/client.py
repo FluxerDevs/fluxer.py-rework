@@ -63,6 +63,7 @@ class Client:
         self._pending_voice: dict[int, VoiceClient] = {}
         self._closed: bool = False
         self._ready = asyncio.Event()
+        self._waiters: dict[str, list[tuple[asyncio.Future[Any], Callable[..., bool] | None]]] = {}
         self._max_retries = max_retries
         self._retry_forever = retry_forever
 
@@ -80,9 +81,42 @@ class Client:
         """Return whether the READY event has been received."""
         return self._ready.is_set()
 
+    def is_closed(self) -> bool:
+        """Return whether the client has been closed."""
+        return self._closed
+
+    @property
+    def loop(self) -> asyncio.AbstractEventLoop:
+        """Return the active asyncio event loop."""
+        try:
+            return asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.get_event_loop()
+
     async def wait_until_ready(self) -> None:
         """Wait until the client has received READY from the gateway."""
         await self._ready.wait()
+
+    async def wait_for(
+        self,
+        event: str,
+        *,
+        check: Callable[..., bool] | None = None,
+        timeout: float | None = None,
+    ) -> Any:
+        """Wait until a Fluxer event matching ``check`` is dispatched."""
+        event_name = event[3:] if event.startswith("on_") else event
+        future: asyncio.Future[Any] = self.loop.create_future()
+        waiter = (future, check)
+        self._waiters.setdefault(event_name, []).append(waiter)
+        try:
+            return await asyncio.wait_for(future, timeout=timeout)
+        finally:
+            waiters = self._waiters.get(event_name)
+            if waiters and waiter in waiters:
+                waiters.remove(waiter)
+            if waiters == []:
+                self._waiters.pop(event_name, None)
 
     def get_guild(self, id: int | str) -> Guild | None:
         try:
@@ -385,12 +419,39 @@ class Client:
 
     async def _fire(self, event_name: str, *args: Any) -> None:
         """Fire all registered handlers for an event."""
+        self._dispatch_waiters(event_name, *args)
         handlers = self._event_handlers.get(event_name, [])
         for handler in handlers:
             try:
                 await handler(*args)
             except Exception:
                 log.exception("Error in event handler '%s'", event_name)
+
+    def _dispatch_waiters(self, event_name: str, *args: Any) -> None:
+        waiter_name = event_name[3:] if event_name.startswith("on_") else event_name
+        waiters = self._waiters.get(waiter_name)
+        if not waiters:
+            return
+
+        result = args[0] if len(args) == 1 else args
+        remaining = []
+        for future, check in waiters:
+            if future.cancelled() or future.done():
+                continue
+            try:
+                passed = check is None or check(*args)
+            except Exception as exc:
+                future.set_exception(exc)
+                continue
+            if passed:
+                future.set_result(result)
+            else:
+                remaining.append((future, check))
+
+        if remaining:
+            self._waiters[waiter_name] = remaining
+        else:
+            self._waiters.pop(waiter_name, None)
 
     # =========================================================================
     # HTTP convenience methods
@@ -718,6 +779,10 @@ class Client:
         """Disconnect from the gateway and clean up resources."""
         self._closed = True
         self._ready.clear()
+        for waiters in self._waiters.values():
+            for future, _check in waiters:
+                future.cancel()
+        self._waiters.clear()
         if self._gateway:
             await self._gateway.close()
         if self._http:
