@@ -18,7 +18,7 @@ class ConnectionState:
     channels: dict[int, Channel] = field(default_factory=dict)
     members: dict[tuple[int, int], GuildMember] = field(default_factory=dict)
     messages: OrderedDict[int, Message] = field(default_factory=OrderedDict)
-    voice_states: dict[int, dict[int, VoiceState]] = field(default_factory=dict)
+    voice_states: dict[int, dict[tuple[int, str | None], VoiceState]] = field(default_factory=dict)
 
     def store_guild(self, guild: Guild) -> Guild:
         self.guilds[guild.id] = guild

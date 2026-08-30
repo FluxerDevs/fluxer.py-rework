@@ -183,6 +183,79 @@ async def test_gateway_helper_payloads() -> None:
     assert sent[5].op == fluxer.GatewayOpcode.VOICE_STATE_UPDATE
 
 
+def test_voice_state_connection_id_parsing() -> None:
+    state = fluxer.VoiceState.from_data(
+        {
+            "user_id": "42",
+            "guild_id": "20",
+            "channel_id": "10",
+            "connection_id": "conn-a",
+        }
+    )
+
+    assert state.connection_id == "conn-a"
+
+
+@pytest.mark.asyncio
+async def test_client_voice_state_cache_seed_update_remove_and_count() -> None:
+    client = fluxer.Client()
+    guild_payload = {
+        "id": "20",
+        "name": "Guild",
+        "voice_states": [
+            {
+                "user_id": "42",
+                "channel_id": "10",
+                "connection_id": "conn-a",
+            },
+            {
+                "user_id": "42",
+                "channel_id": "10",
+                "connection_id": "conn-b",
+            },
+            {
+                "user_id": "43",
+                "channel_id": "10",
+                "connection_id": "conn-c",
+            },
+        ],
+    }
+
+    await client._dispatch("GUILD_CREATE", guild_payload)
+
+    assert len(client.get_guild_voice_states(20)) == 3
+    assert len(client.get_channel_voice_states(10)) == 3
+    assert client.get_channel_voice_user_count(10) == 2
+    assert client.get_voice_state(20, 42) is not None
+
+    await client._dispatch(
+        "VOICE_STATE_UPDATE",
+        {
+            "user_id": "42",
+            "guild_id": "20",
+            "channel_id": "11",
+            "connection_id": "conn-a",
+        },
+    )
+
+    assert len(client.get_channel_voice_states(10)) == 2
+    assert len(client.get_channel_voice_states(11)) == 1
+
+    await client._dispatch(
+        "VOICE_STATE_UPDATE",
+        {
+            "user_id": "42",
+            "guild_id": "20",
+            "channel_id": None,
+            "connection_id": "conn-b",
+        },
+    )
+
+    assert len(client.get_guild_voice_states(20)) == 2
+    assert len(client.get_channel_voice_states(10)) == 1
+    assert client.get_channel_voice_user_count(10) == 1
+
+
 @pytest.mark.asyncio
 async def test_client_wait_for_resolves_matching_events() -> None:
     client = fluxer.Client()

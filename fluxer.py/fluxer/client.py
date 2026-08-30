@@ -219,6 +219,7 @@ class Client:
                 for guild_data in data.get("guilds", []):
                     guild = Guild.from_data(guild_data, self._http)
                     self._state.store_guild(guild)
+                    self._seed_guild_voice_states(guild.id, guild_data.get("voice_states", []))
                 self._ready.set()
                 await self._fire("on_ready")
 
@@ -241,6 +242,7 @@ class Client:
                     ch = Channel.from_data(ch_data, self._http)
                     ch._guild = guild
                     self._state.store_channel(ch)
+                self._seed_guild_voice_states(guild.id, data.get("voice_states", []))
                 await self._fire("on_guild_join", guild)
 
             case "GUILD_DELETE":
@@ -282,16 +284,7 @@ class Client:
                     await self._fire("on_channel_delete", data)
 
             case "VOICE_STATE_UPDATE":
-                voice_state = VoiceState.from_data(data, self._http)
-                if voice_state.guild_id is not None:
-                    guild_states = self._voice_states.setdefault(
-                        voice_state.guild_id, {}
-                    )
-                    if voice_state.channel_id is None:
-                        # user left vc
-                        guild_states.pop(voice_state.user_id, None)
-                    else:
-                        guild_states[voice_state.user_id] = voice_state
+                voice_state = self._store_voice_state(data)
                 await self._fire("on_voice_state_update", voice_state)
 
             case "VOICE_SERVER_UPDATE":
@@ -300,7 +293,7 @@ class Client:
                 if vc:
                     bot_user_id = self._user.id if self._user else None
                     cached_state = (
-                        self._voice_states.get(guild_id, {}).get(bot_user_id)
+                        self.get_voice_state(guild_id, bot_user_id)
                         if bot_user_id is not None
                         else None
                     )
@@ -579,11 +572,48 @@ class Client:
 
     def get_voice_state(self, guild_id: int, user_id: int) -> VoiceState | None:
         """Return the cached voice state for a user in a guild, or None."""
-        return self._voice_states.get(guild_id, {}).get(user_id)
+        guild_states = self._voice_states.get(int(guild_id), {})
+        for (cached_user_id, _connection_id), state in guild_states.items():
+            if cached_user_id == int(user_id):
+                return state
+        return None
 
     def get_guild_voice_states(self, guild_id: int) -> list[VoiceState]:
         """Return all cached voice states for a guild."""
-        return list(self._voice_states.get(guild_id, {}).values())
+        return list(self._voice_states.get(int(guild_id), {}).values())
+
+    def get_channel_voice_states(self, channel_id: int | str) -> list[VoiceState]:
+        """Return all cached voice states for a voice channel."""
+        target_channel_id = int(channel_id)
+        return [
+            state
+            for guild_states in self._voice_states.values()
+            for state in guild_states.values()
+            if state.channel_id == target_channel_id
+        ]
+
+    def get_channel_voice_user_count(self, channel_id: int | str) -> int:
+        """Return the cached unique-user count for a voice channel."""
+        return len({state.user_id for state in self.get_channel_voice_states(channel_id)})
+
+    def _voice_state_key(self, voice_state: VoiceState) -> tuple[int, str | None]:
+        return (voice_state.user_id, voice_state.connection_id)
+
+    def _seed_guild_voice_states(self, guild_id: int, voice_states: list[dict[str, Any]]) -> None:
+        for voice_state_data in voice_states:
+            payload = {**voice_state_data, "guild_id": voice_state_data.get("guild_id", guild_id)}
+            self._store_voice_state(payload)
+
+    def _store_voice_state(self, data: dict[str, Any]) -> VoiceState:
+        voice_state = VoiceState.from_data(data, self._http)
+        if voice_state.guild_id is not None:
+            guild_states = self._voice_states.setdefault(voice_state.guild_id, {})
+            key = self._voice_state_key(voice_state)
+            if voice_state.channel_id is None:
+                guild_states.pop(key, None)
+            else:
+                guild_states[key] = voice_state
+        return voice_state
 
     # =========================================================================
     # Reaction methods
