@@ -1,0 +1,60 @@
+name: Publish fluxer.py to main
+
+on:
+  push:
+    branches:
+      - rework-dev
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-fluxer-main
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Extract fluxer.py and force-sync main
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out rework source
+        uses: actions/checkout@v4
+        with:
+          path: source
+          fetch-depth: 1
+
+      - name: Prepare extracted package root
+        run: |
+          set -euo pipefail
+
+          if [ ! -d source/fluxer.py ]; then
+            echo "::error::Expected source/fluxer.py to exist."
+            exit 1
+          fi
+
+          mkdir publish
+          rsync -a --delete source/fluxer.py/ publish/
+
+      - name: Publish extracted contents to main
+        working-directory: publish
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          git init
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout --orphan main
+          git add -A
+
+          if git diff --cached --quiet; then
+            echo "::error::Extracted source/fluxer.py did not contain any files to publish."
+            exit 1
+          fi
+
+          git commit -m "Publish fluxer.py from ${GITHUB_SHA}"
+          git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git push --force origin main
