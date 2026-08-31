@@ -35,7 +35,7 @@ jobs:
           fi
 
           mkdir publish
-          rsync -a --delete source/fluxer.py/ publish/
+          rsync -a --delete --exclude ".github/workflows/**" source/fluxer.py/ publish/
 
       - name: Publish extracted contents to main
         working-directory: publish
